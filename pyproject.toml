@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "djangorag"
+version = "0.1.0"
+description = "LightRAG implementation as a reusable Django app"
+authors = [{name = "LightRAG Team", email = "team@lightrag.ai"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Framework :: Django :: 4.2",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Linguistic",
+]
+
+dependencies = [
+    "Django>=4.2,<5.0",
+    "django-ninja>=1.0",
+    "real-ladybug>=0.1.0",
+    "chromadb>=0.4.0",
+    "tiktoken>=0.5.0",
+    "python-dotenv>=1.0.0",
+    "aiofiles>=23.0.0",
+    "numpy>=1.24.0",
+    "asyncio-throttle>=1.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-django>=4.5.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "django-stubs>=4.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/HKUDS/LightRAG"
+Repository = "https://github.com/HKUDS/LightRAG"
+Documentation = "https://docs.lightrag.dev/"
+
+[tool.setuptools.packages.find]
+include = ["djangorag*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "DJ", "PIE", "PT", "RSE"]
+ignore = ["E501", "PIE796"]
+
+[dependency-groups]
+dev = [
+    "flake8>=5.0.4",
+    "ruff>=0.15.6",
+]
