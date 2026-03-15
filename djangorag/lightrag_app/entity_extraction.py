@@ -7,7 +7,6 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from hashlib import md5
 from typing import Any, Callable, Protocol, TypedDict
 
 logger = logging.getLogger(__name__)
@@ -227,8 +226,6 @@ relation{tuple_delimiter}Noah Carter{tuple_delimiter}World Athletics Championshi
 """,
 ]
 
-statistic_data = {"llm_cache": 0, "llm_call": 0}
-
 
 def pack_user_ass_to_openai_messages(*args: str):
     roles = ["user", "assistant"]
@@ -248,97 +245,6 @@ def split_string_by_multi_markers(content: str, markers: list[str]) -> list[str]
 
 def is_float_regex(value: str) -> bool:
     return bool(re.match(r"^[-+]?[0-9]*\.?[0-9]+$", value))
-
-
-def compute_args_hash(*args: Any) -> str:
-    args_str = "".join([str(arg) for arg in args])
-    try:
-        return md5(args_str.encode("utf-8")).hexdigest()
-    except UnicodeEncodeError:
-        safe_bytes = args_str.encode("utf-8", errors="replace")
-        return md5(safe_bytes).hexdigest()
-
-
-def generate_cache_key(mode: str, cache_type: str, hash_value: str) -> str:
-    return f"{mode}:{cache_type}:{hash_value}"
-
-
-def handle_cache(
-    hashing_kv: BaseKVStorage | None,
-    args_hash: str,
-    prompt: str,
-    mode: str = "default",
-    cache_type: str = "unknown",
-) -> tuple[str, int] | None:
-    if hashing_kv is None:
-        return None
-
-    global_config = getattr(hashing_kv, "global_config", {}) or {}
-    if mode != "default":
-        if not global_config.get("enable_llm_cache", True):
-            return None
-    else:
-        if not global_config.get("enable_llm_cache_for_entity_extract", True):
-            return None
-
-    flattened_key = generate_cache_key(mode, cache_type, args_hash)
-    cache_entry = hashing_kv.get_by_id(flattened_key)
-    if cache_entry:
-        logger.debug(f"Flattened cache hit(key:{flattened_key})")
-        content = cache_entry["return"]
-        timestamp = cache_entry.get("create_time", 0)
-        return content, timestamp
-
-    logger.debug(f"Cache missed(mode:{mode} type:{cache_type})")
-    return None
-
-
-@dataclass
-class CacheData:
-    args_hash: str
-    content: str
-    prompt: str
-    mode: str = "default"
-    cache_type: str = "query"
-    chunk_id: str | None = None
-    queryparam: dict | None = None
-
-
-def save_to_cache(hashing_kv: BaseKVStorage | None, cache_data: CacheData):
-    if hashing_kv is None or not cache_data.content:
-        return
-
-    if hasattr(cache_data.content, "__iter__") and not isinstance(
-        cache_data.content, str
-    ):
-        logger.debug("Non-string content detected, skipping cache")
-        return
-
-    flattened_key = generate_cache_key(
-        cache_data.mode, cache_data.cache_type, cache_data.args_hash
-    )
-
-    existing_cache = hashing_kv.get_by_id(flattened_key)
-    if existing_cache:
-        existing_content = existing_cache.get("return")
-        if existing_content == cache_data.content:
-            logger.warning(
-                f"Cache duplication detected for {flattened_key}, skipping update"
-            )
-            return
-
-    cache_entry = {
-        "return": cache_data.content,
-        "cache_type": cache_data.cache_type,
-        "chunk_id": cache_data.chunk_id if cache_data.chunk_id is not None else None,
-        "original_prompt": cache_data.prompt,
-        "queryparam": cache_data.queryparam
-        if cache_data.queryparam is not None
-        else None,
-    }
-
-    logger.info(f" == LLM cache == saving: {flattened_key}")
-    hashing_kv.upsert({flattened_key: cache_entry})
 
 
 def remove_think_tags(text: str) -> str:
@@ -538,47 +444,13 @@ def create_prefixed_exception(original_exception: Exception, prefix: str) -> Exc
         )
 
 
-def update_chunk_cache_list(
-    chunk_id: str,
-    text_chunks_storage: BaseKVStorage,
-    cache_keys: list[str],
-    cache_scenario: str = "batch_update",
-) -> None:
-    if not cache_keys:
-        return
-
-    try:
-        chunk_data = text_chunks_storage.get_by_id(chunk_id)
-        if chunk_data:
-            if "llm_cache_list" not in chunk_data:
-                chunk_data["llm_cache_list"] = []
-
-            existing_keys = set(chunk_data["llm_cache_list"])
-            new_keys = [key for key in cache_keys if key not in existing_keys]
-
-            if new_keys:
-                chunk_data["llm_cache_list"].extend(new_keys)
-                text_chunks_storage.upsert({chunk_id: chunk_data})
-                logger.debug(
-                    f"Updated chunk {chunk_id} with {len(new_keys)} cache keys ({cache_scenario})"
-                )
-    except Exception as e:
-        logger.warning(
-            f"Failed to update chunk {chunk_id} with cache references on {cache_scenario}: {e}"
-        )
-
-
-def use_llm_func_with_cache(
+def use_llm_func(
     user_prompt: str,
     use_llm_func: Callable[..., Any],
-    llm_response_cache: BaseKVStorage | None = None,
     system_prompt: str | None = None,
     max_tokens: int = None,
     history_messages: list[dict[str, str]] = None,
-    cache_type: str = "extract",
-    chunk_id: str | None = None,
-    cache_keys_collector: list | None = None,
-) -> tuple[str, int]:
+) -> str:
     safe_user_prompt = sanitize_text_for_encoding(user_prompt)
     safe_system_prompt = (
         sanitize_text_for_encoding(system_prompt) if system_prompt else None
@@ -592,71 +464,6 @@ def use_llm_func_with_cache(
             if "content" in safe_msg:
                 safe_msg["content"] = sanitize_text_for_encoding(safe_msg["content"])
             safe_history_messages.append(safe_msg)
-        history = json.dumps(safe_history_messages, ensure_ascii=False)
-    else:
-        history = None
-
-    if llm_response_cache:
-        prompt_parts = []
-        if safe_user_prompt:
-            prompt_parts.append(safe_user_prompt)
-        if safe_system_prompt:
-            prompt_parts.append(safe_system_prompt)
-        if history:
-            prompt_parts.append(history)
-        _prompt = "\n".join(prompt_parts)
-
-        arg_hash = compute_args_hash(_prompt)
-        cache_key = generate_cache_key("default", cache_type, arg_hash)
-
-        cached_result = handle_cache(
-            llm_response_cache,
-            arg_hash,
-            _prompt,
-            "default",
-            cache_type=cache_type,
-        )
-        if cached_result:
-            content, timestamp = cached_result
-            logger.debug(f"Found cache for {arg_hash}")
-            statistic_data["llm_cache"] += 1
-
-            if cache_keys_collector is not None:
-                cache_keys_collector.append(cache_key)
-
-            return content, timestamp
-        statistic_data["llm_call"] += 1
-
-        kwargs = {}
-        if safe_history_messages:
-            kwargs["history_messages"] = safe_history_messages
-        if max_tokens is not None:
-            kwargs["max_tokens"] = max_tokens
-
-        res: str = use_llm_func(
-            safe_user_prompt, system_prompt=safe_system_prompt, **kwargs
-        )
-        res = remove_think_tags(res)
-
-        current_timestamp = int(time.time())
-
-        global_config = getattr(llm_response_cache, "global_config", {}) or {}
-        if global_config.get("enable_llm_cache_for_entity_extract", True):
-            save_to_cache(
-                llm_response_cache,
-                CacheData(
-                    args_hash=arg_hash,
-                    content=res,
-                    prompt=_prompt,
-                    cache_type=cache_type,
-                    chunk_id=chunk_id,
-                ),
-            )
-
-            if cache_keys_collector is not None:
-                cache_keys_collector.append(cache_key)
-
-        return res, current_timestamp
 
     kwargs = {}
     if safe_history_messages:
@@ -670,8 +477,7 @@ def use_llm_func_with_cache(
         error_msg = f"[LLM func] {str(e)}"
         raise type(e)(error_msg) from e
 
-    current_timestamp = int(time.time())
-    return remove_think_tags(res), current_timestamp
+    return remove_think_tags(res)
 
 
 def _truncate_entity_identifier(
@@ -987,8 +793,6 @@ def extract_entities(
     global_config: dict[str, str],
     pipeline_status: dict = None,
     pipeline_status_lock=None,
-    llm_response_cache: BaseKVStorage | None = None,
-    text_chunks_storage: BaseKVStorage | None = None,
 ) -> list:
     # Check for cancellation at the start of entity extraction
     if pipeline_status is not None and pipeline_status_lock is not None:
@@ -1045,9 +849,6 @@ def extract_entities(
         # Get file path from chunk data or use default
         file_path = chunk_dp.get("file_path", "unknown_source")
 
-        # Create cache keys collector for batch processing
-        cache_keys_collector = []
-
         # Get initial extraction
         # Format system prompt without input_text for each chunk (enables OpenAI prompt caching across chunks)
         entity_extraction_system_prompt = PROMPTS[
@@ -1061,15 +862,12 @@ def extract_entities(
             "entity_continue_extraction_user_prompt"
         ].format(**{**context_base, "input_text": content})
 
-        final_result, timestamp = use_llm_func_with_cache(
+        final_result = use_llm_func(
             entity_extraction_user_prompt,
             use_llm_func,
             system_prompt=entity_extraction_system_prompt,
-            llm_response_cache=llm_response_cache,
-            cache_type="extract",
-            chunk_id=chunk_key,
-            cache_keys_collector=cache_keys_collector,
         )
+        timestamp = int(time.time())
 
         history = pack_user_ass_to_openai_messages(
             entity_extraction_user_prompt, final_result
@@ -1107,16 +905,13 @@ def extract_entities(
                     f"Gleaning stopped for chunk {chunk_key}: Input tokens ({token_count}) exceeded limit ({max_input_tokens})."
                 )
             else:
-                glean_result, timestamp = use_llm_func_with_cache(
+                glean_result = use_llm_func(
                     entity_continue_extraction_user_prompt,
                     use_llm_func,
                     system_prompt=entity_extraction_system_prompt,
-                    llm_response_cache=llm_response_cache,
                     history_messages=history,
-                    cache_type="extract",
-                    chunk_id=chunk_key,
-                    cache_keys_collector=cache_keys_collector,
                 )
+                timestamp = int(time.time())
 
                 # Process gleaning result separately with file path
                 glean_nodes, glean_edges = _process_extraction_result(
@@ -1162,15 +957,6 @@ def extract_entities(
                     else:
                         # New edge from gleaning stage
                         maybe_edges[edge_key] = list(glean_edge_list)
-
-        # Batch update chunk's llm_cache_list with all collected cache keys
-        if cache_keys_collector and text_chunks_storage:
-            update_chunk_cache_list(
-                chunk_key,
-                text_chunks_storage,
-                cache_keys_collector,
-                "entity_extraction",
-            )
 
         processed_chunks += 1
         entities_count = len(maybe_nodes)
