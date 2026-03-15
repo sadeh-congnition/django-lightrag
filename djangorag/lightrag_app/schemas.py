@@ -16,21 +16,7 @@ class DocumentIngestSchema(Schema):
 class DocumentSchema(Schema):
     id: str
     title: str
-    status: str
-    documents_count: int
-    created_at: str
-    updated_at: str
-
-
-class DocumentStatusSchema(Schema):
-    document_id: str
-    title: str
-    status: str
-    documents_count: int
-    documents_list: List[str]
-    error_message: str
-    started_at: Optional[str]
-    completed_at: Optional[str]
+    track_id: str
     created_at: str
     updated_at: str
 

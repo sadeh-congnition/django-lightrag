@@ -10,12 +10,6 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--status",
-            type=str,
-            choices=["pending", "processing", "processed", "failed"],
-            help="Filter by document status",
-        )
-        parser.add_argument(
             "--format",
             type=str,
             choices=["table", "json"],
@@ -24,7 +18,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        status_filter = options.get("status")
         output_format = options["format"]
 
         # Get documents
@@ -33,7 +26,7 @@ class Command(BaseCommand):
         try:
             core = LightRAGCore()
             try:
-                documents = core.list_documents(status_filter)
+                documents = core.list_documents()
 
                 if not documents:
                     self.stdout.write(self.style.WARNING("No documents found"))
@@ -46,11 +39,11 @@ class Command(BaseCommand):
                 else:
                     # Table format
                     self.stdout.write(self.style.SUCCESS("Documents in the system:"))
-                    self.stdout.write("-" * 100)
+                    self.stdout.write("-" * 118)
                     self.stdout.write(
-                        f"{'ID':<36} {'Title':<30} {'Status':<12} {'Documents':<9} {'Created':<20}"
+                        f"{'ID':<36} {'Title':<30} {'Track ID':<20} {'Created':<20}"
                     )
-                    self.stdout.write("-" * 100)
+                    self.stdout.write("-" * 118)
 
                     for doc in documents:
                         title = (
@@ -61,11 +54,11 @@ class Command(BaseCommand):
                         created = doc["created_at"][:19].replace("T", " ")
 
                         self.stdout.write(
-                            f"{doc['id']:<36} {title:<30} {doc['status']:<12} "
-                            f"{doc['documents_count']:<8} {created:<20}"
+                            f"{doc['id']:<36} {title:<30} {doc['track_id']:<20} "
+                            f"{created:<20}"
                         )
 
-                    self.stdout.write("-" * 100)
+                    self.stdout.write("-" * 118)
                     self.stdout.write(f"Total: {len(documents)} documents")
             finally:
                 core.close()

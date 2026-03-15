@@ -1,14 +1,13 @@
 import hashlib
 import json
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 import uuid
 
 import tiktoken
 from django.conf import settings
-from django.utils import timezone
 
 from .models import (
     Document,
@@ -104,12 +103,6 @@ class LightRAGCore:
             track_id=track_id,
         )
 
-        # Update status to processing
-        doc_status = document.status
-        doc_status.status = "processing"
-        doc_status.started_at = timezone.now()
-        doc_status.save()
-
         try:
             # Extract entities and relations (simplified version)
             self._extract_knowledge_graph_from_document(document)
@@ -117,21 +110,9 @@ class LightRAGCore:
             # Generate embeddings for document
             self._generate_document_embeddings(document)
 
-            # Update status to completed
-            doc_status.status = "processed"
-            doc_status.documents_count = 1
-            doc_status.documents_list = [document.id]
-            doc_status.completed_at = timezone.now()
-            doc_status.save()
-
             return document_id
 
         except Exception as e:
-            # Update status to failed
-            doc_status.status = "failed"
-            doc_status.error_message = str(e)
-            doc_status.completed_at = timezone.now()
-            doc_status.save()
             raise
 
     def _extract_knowledge_graph_from_document(self, document: Document):
@@ -482,38 +463,10 @@ The actual implementation would use the context to provide a detailed, relevant 
         except Exception as e:
             raise RuntimeError(f"Failed to delete document: {e}")
 
-    def get_document_status(self, document_id: str) -> Optional[Dict[str, Any]]:
-        """Get document processing status"""
-        try:
-            document = Document.objects.get(id=document_id)
-            status = document.status
-
-            return {
-                "document_id": document.id,
-                "title": document.title,
-                "status": status.status,
-                "documents_count": status.documents_count,
-                "documents_list": status.documents_list,
-                "error_message": status.error_message,
-                "started_at": status.started_at.isoformat()
-                if status.started_at
-                else None,
-                "completed_at": status.completed_at.isoformat()
-                if status.completed_at
-                else None,
-                "created_at": document.created_at.isoformat(),
-                "updated_at": document.updated_at.isoformat(),
-            }
-        except Document.DoesNotExist:
-            return None
-
-    def list_documents(self, status_filter: str = None) -> List[Dict[str, Any]]:
+    def list_documents(self) -> List[Dict[str, Any]]:
         """List documents in the system"""
 
-        documents = Document.objects.all().select_related("status")
-        if status_filter:
-            documents = documents.filter(status__status=status_filter)
-        documents = list(documents)
+        documents = list(Document.objects.all())
 
         result = []
         for doc in documents:
@@ -521,8 +474,7 @@ The actual implementation would use the context to provide a detailed, relevant 
                 {
                     "id": doc.id,
                     "title": doc.title,
-                    "status": doc.status.status,
-                    "documents_count": doc.status.documents_count,
+                    "track_id": doc.track_id,
                     "created_at": doc.created_at.isoformat(),
                     "updated_at": doc.updated_at.isoformat(),
                 }

@@ -24,38 +24,6 @@ class Document(models.Model):
         return f"{self.title or self.id[:50]}..."
 
 
-class DocumentStatus(models.Model):
-    """Track document processing status"""
-
-    STATUS_CHOICES = [
-        ("pending", "Pending"),
-        ("processing", "Processing"),
-        ("processed", "Processed"),
-        ("failed", "Failed"),
-    ]
-
-    document = models.OneToOneField(
-        Document, on_delete=models.CASCADE, related_name="status"
-    )
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
-    documents_count = models.IntegerField(default=0)
-    documents_list = models.JSONField(default=list, blank=True)
-    error_message = models.TextField(blank=True)
-    started_at = models.DateTimeField(null=True, blank=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "lightrag_document_status"
-        indexes = [
-            models.Index(fields=["status"]),
-        ]
-
-    def __str__(self):
-        return f"{self.document.id} - {self.status}"
-
-
 class Entity(models.Model):
     """Knowledge graph entities"""
 

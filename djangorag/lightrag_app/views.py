@@ -2,14 +2,13 @@
 Django API views for LightRAG using django-ninja.
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict
 from ninja import Router
 
 from .core import LightRAGCore, QueryParam
 from .schemas import (
     DocumentIngestSchema,
     DocumentSchema,
-    DocumentStatusSchema,
     QueryRequestSchema,
     QueryResultSchema,
     EntitySchema,
@@ -48,39 +47,17 @@ def ingest_document(request, data: DocumentIngestSchema):
 @router.get(
     "/documents", response={200: List[DocumentSchema], 400: ErrorResponseSchema}
 )
-def list_documents(request, status: Optional[str] = None):
+def list_documents(request):
     """List documents in the system"""
     try:
         core = LightRAGCore()
         try:
-            documents = core.list_documents(status)
+            documents = core.list_documents()
             return [DocumentSchema(**doc) for doc in documents]
         finally:
             core.close()
     except Exception as e:
         return 400, {"error": "list_failed", "message": str(e)}
-
-
-@router.get(
-    "/documents/{document_id}/status",
-    response={200: DocumentStatusSchema, 404: ErrorResponseSchema},
-)
-def get_document_status(request, document_id: str):
-    """Get document processing status"""
-    try:
-        core = LightRAGCore()
-        try:
-            status = core.get_document_status(document_id)
-            if not status:
-                return 404, {
-                    "error": "document_not_found",
-                    "message": f"Document '{document_id}' not found",
-                }
-            return DocumentStatusSchema(**status)
-        finally:
-            core.close()
-    except Exception as e:
-        return 400, {"error": "status_failed", "message": str(e)}
 
 
 @router.post("/query", response={200: QueryResultSchema, 400: ErrorResponseSchema})
