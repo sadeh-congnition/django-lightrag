@@ -40,6 +40,8 @@ dependencies = [
     "aiofiles>=23.0.0",
     "numpy>=1.24.0",
     "asyncio-throttle>=1.0.2",
+    "chonkie>=0.1.0",
+    "pytest-django>=4.11.1",
 ]
 
 [project.optional-dependencies]
@@ -68,6 +70,8 @@ include = '\.pyi?$'
 [tool.ruff]
 line-length = 88
 target-version = "py38"
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "DJ", "PIE", "PT", "RSE"]
 ignore = ["E501", "PIE796"]
 

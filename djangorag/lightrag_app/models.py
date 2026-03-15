@@ -5,25 +5,9 @@ from django.utils import timezone
 from django.core.exceptions import ValidationError
 
 
-class Workspace(models.Model):
-    """Workspace for data isolation and multi-tenancy"""
-    name = models.CharField(max_length=255, unique=True)
-    description = models.TextField(blank=True)
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='workspaces')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        db_table = 'lightrag_workspaces'
-        ordering = ['name']
-
-    def __str__(self):
-        return self.name
-
-
 class Document(models.Model):
     """Document representation in the RAG system"""
+
     id = models.CharField(max_length=255, primary_key=True)  # MD5 hash or UUID
     title = models.CharField(max_length=500, blank=True)
     content = models.TextField()
@@ -34,9 +18,9 @@ class Document(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'lightrag_documents'
+        db_table = "lightrag_documents"
         indexes = [
-            models.Index(fields=['track_id']),
+            models.Index(fields=["track_id"]),
         ]
 
     def __str__(self):
@@ -45,15 +29,18 @@ class Document(models.Model):
 
 class DocumentStatus(models.Model):
     """Track document processing status"""
+
     STATUS_CHOICES = [
-        ('pending', 'Pending'),
-        ('processing', 'Processing'),
-        ('processed', 'Processed'),
-        ('failed', 'Failed'),
+        ("pending", "Pending"),
+        ("processing", "Processing"),
+        ("processed", "Processed"),
+        ("failed", "Failed"),
     ]
 
-    document = models.OneToOneField(Document, on_delete=models.CASCADE, related_name='status')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    document = models.OneToOneField(
+        Document, on_delete=models.CASCADE, related_name="status"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     chunks_count = models.IntegerField(default=0)
     chunks_list = models.JSONField(default=list, blank=True)
     error_message = models.TextField(blank=True)
@@ -63,9 +50,9 @@ class DocumentStatus(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'lightrag_document_status'
+        db_table = "lightrag_document_status"
         indexes = [
-            models.Index(fields=['status']),
+            models.Index(fields=["status"]),
         ]
 
     def __str__(self):
@@ -74,8 +61,11 @@ class DocumentStatus(models.Model):
 
 class TextChunk(models.Model):
     """Text chunks from document processing"""
+
     id = models.CharField(max_length=255, primary_key=True)
-    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='chunks')
+    document = models.ForeignKey(
+        Document, on_delete=models.CASCADE, related_name="chunks"
+    )
     content = models.TextField()
     tokens = models.IntegerField()
     chunk_order_index = models.IntegerField()
@@ -84,10 +74,10 @@ class TextChunk(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'lightrag_text_chunks'
-        ordering = ['document', 'chunk_order_index']
+        db_table = "lightrag_text_chunks"
+        ordering = ["document", "chunk_order_index"]
         indexes = [
-            models.Index(fields=['document']),
+            models.Index(fields=["document"]),
         ]
 
     def __str__(self):
@@ -96,6 +86,7 @@ class TextChunk(models.Model):
 
 class Entity(models.Model):
     """Knowledge graph entities"""
+
     id = models.CharField(max_length=255, primary_key=True)
     name = models.CharField(max_length=500, db_index=True)
     entity_type = models.CharField(max_length=100)
@@ -107,10 +98,10 @@ class Entity(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'lightrag_entities'
+        db_table = "lightrag_entities"
         indexes = [
-            models.Index(fields=['name']),
-            models.Index(fields=['entity_type']),
+            models.Index(fields=["name"]),
+            models.Index(fields=["entity_type"]),
         ]
 
     def __str__(self):
@@ -119,9 +110,14 @@ class Entity(models.Model):
 
 class Relation(models.Model):
     """Knowledge graph relationships"""
+
     id = models.CharField(max_length=255, primary_key=True)
-    source_entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name='outgoing_relations')
-    target_entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name='incoming_relations')
+    source_entity = models.ForeignKey(
+        Entity, on_delete=models.CASCADE, related_name="outgoing_relations"
+    )
+    target_entity = models.ForeignKey(
+        Entity, on_delete=models.CASCADE, related_name="incoming_relations"
+    )
     relation_type = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     source_ids = models.JSONField(default=list, blank=True)  # List of chunk IDs
@@ -132,10 +128,10 @@ class Relation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'lightrag_relations'
+        db_table = "lightrag_relations"
         indexes = [
-            models.Index(fields=['source_entity', 'target_entity']),
-            models.Index(fields=['relation_type']),
+            models.Index(fields=["source_entity", "target_entity"]),
+            models.Index(fields=["relation_type"]),
         ]
 
     def __str__(self):
@@ -144,17 +140,22 @@ class Relation(models.Model):
 
 class EntityChunk(models.Model):
     """Mapping between entities and chunks"""
+
     id = models.CharField(max_length=255, primary_key=True)
-    entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name='entity_chunks')
-    chunk = models.ForeignKey(TextChunk, on_delete=models.CASCADE, related_name='entity_chunks')
+    entity = models.ForeignKey(
+        Entity, on_delete=models.CASCADE, related_name="entity_chunks"
+    )
+    chunk = models.ForeignKey(
+        TextChunk, on_delete=models.CASCADE, related_name="entity_chunks"
+    )
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'lightrag_entity_chunks'
+        db_table = "lightrag_entity_chunks"
         indexes = [
-            models.Index(fields=['entity']),
-            models.Index(fields=['chunk']),
+            models.Index(fields=["entity"]),
+            models.Index(fields=["chunk"]),
         ]
 
     def __str__(self):
@@ -163,17 +164,22 @@ class EntityChunk(models.Model):
 
 class RelationChunk(models.Model):
     """Mapping between relations and chunks"""
+
     id = models.CharField(max_length=255, primary_key=True)
-    relation = models.ForeignKey(Relation, on_delete=models.CASCADE, related_name='relation_chunks')
-    chunk = models.ForeignKey(TextChunk, on_delete=models.CASCADE, related_name='relation_chunks')
+    relation = models.ForeignKey(
+        Relation, on_delete=models.CASCADE, related_name="relation_chunks"
+    )
+    chunk = models.ForeignKey(
+        TextChunk, on_delete=models.CASCADE, related_name="relation_chunks"
+    )
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'lightrag_relation_chunks'
+        db_table = "lightrag_relation_chunks"
         indexes = [
-            models.Index(fields=['relation']),
-            models.Index(fields=['chunk']),
+            models.Index(fields=["relation"]),
+            models.Index(fields=["chunk"]),
         ]
 
     def __str__(self):
@@ -182,24 +188,27 @@ class RelationChunk(models.Model):
 
 class VectorEmbedding(models.Model):
     """Vector embeddings for entities, relations, and chunks"""
+
     VECTOR_TYPES = [
-        ('entity', 'Entity'),
-        ('relation', 'Relation'),
-        ('chunk', 'Chunk'),
+        ("entity", "Entity"),
+        ("relation", "Relation"),
+        ("chunk", "Chunk"),
     ]
 
     id = models.CharField(max_length=255, primary_key=True)
     vector_type = models.CharField(max_length=20, choices=VECTOR_TYPES)
-    content_id = models.CharField(max_length=255)  # Reference to entity/relation/chunk ID
+    content_id = models.CharField(
+        max_length=255
+    )  # Reference to entity/relation/chunk ID
     embedding = models.JSONField()  # Store as JSON array
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'lightrag_vector_embeddings'
+        db_table = "lightrag_vector_embeddings"
         indexes = [
-            models.Index(fields=['vector_type', 'content_id']),
+            models.Index(fields=["vector_type", "content_id"]),
         ]
 
     def __str__(self):
@@ -208,11 +217,12 @@ class VectorEmbedding(models.Model):
 
 class CacheEntry(models.Model):
     """Cache for LLM responses and other expensive operations"""
+
     CACHE_TYPES = [
-        ('llm_response', 'LLM Response'),
-        ('embedding', 'Embedding'),
-        ('entity_extraction', 'Entity Extraction'),
-        ('relation_extraction', 'Relation Extraction'),
+        ("llm_response", "LLM Response"),
+        ("embedding", "Embedding"),
+        ("entity_extraction", "Entity Extraction"),
+        ("relation_extraction", "Relation Extraction"),
     ]
 
     id = models.CharField(max_length=255, primary_key=True)
@@ -224,11 +234,11 @@ class CacheEntry(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'lightrag_cache'
-        unique_together = [['cache_key']]
+        db_table = "lightrag_cache"
+        unique_together = [["cache_key"]]
         indexes = [
-            models.Index(fields=['cache_type']),
-            models.Index(fields=['expires_at']),
+            models.Index(fields=["cache_type"]),
+            models.Index(fields=["expires_at"]),
         ]
 
     def __str__(self):
@@ -243,24 +253,25 @@ class CacheEntry(models.Model):
 
 class ProcessingJob(models.Model):
     """Track background processing jobs"""
+
     JOB_TYPES = [
-        ('document_ingestion', 'Document Ingestion'),
-        ('entity_extraction', 'Entity Extraction'),
-        ('relation_extraction', 'Relation Extraction'),
-        ('embedding_generation', 'Embedding Generation'),
+        ("document_ingestion", "Document Ingestion"),
+        ("entity_extraction", "Entity Extraction"),
+        ("relation_extraction", "Relation Extraction"),
+        ("embedding_generation", "Embedding Generation"),
     ]
 
     JOB_STATUSES = [
-        ('pending', 'Pending'),
-        ('running', 'Running'),
-        ('completed', 'Completed'),
-        ('failed', 'Failed'),
-        ('cancelled', 'Cancelled'),
+        ("pending", "Pending"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+        ("cancelled", "Cancelled"),
     ]
 
     id = models.CharField(max_length=255, primary_key=True)
     job_type = models.CharField(max_length=50, choices=JOB_TYPES)
-    status = models.CharField(max_length=20, choices=JOB_STATUSES, default='pending')
+    status = models.CharField(max_length=20, choices=JOB_STATUSES, default="pending")
     input_data = models.JSONField(default=dict)
     output_data = models.JSONField(default=dict)
     error_message = models.TextField(blank=True)
@@ -271,12 +282,78 @@ class ProcessingJob(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'lightrag_processing_jobs'
+        db_table = "lightrag_processing_jobs"
         indexes = [
-            models.Index(fields=['job_type']),
-            models.Index(fields=['status']),
-            models.Index(fields=['created_at']),
+            models.Index(fields=["job_type"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["created_at"]),
         ]
 
     def __str__(self):
         return f"{self.job_type} job {self.id} - {self.status}"
+
+
+class ChunkConfig(models.Model):
+    """Configuration for document chunking strategies"""
+
+    CHUNK_STRATEGIES = [
+        ("semantic", "Semantic Chunker"),
+        ("recursive", "Recursive Character Splitter"),
+        ("fixed_size", "Fixed Size Chunker"),
+        ("token_based", "Token Based Chunker"),
+    ]
+
+    id = models.CharField(max_length=255, primary_key=True)
+    description = models.TextField(blank=True)
+    strategy = models.CharField(
+        max_length=50, choices=CHUNK_STRATEGIES, default="semantic"
+    )
+    config = models.JSONField(
+        default=dict, help_text="Configuration parameters for the chunking strategy"
+    )
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"({self.strategy})"
+
+    def clean(self):
+        """Validate configuration based on strategy"""
+        super().clean()
+
+        if self.strategy == "semantic":
+            # Default semantic chunker configuration
+            default_config = {
+                "chunk_size": 400,
+                "min_chunk_size": 50,
+                "max_chunk_size": 1000,
+                "overlap": 50,
+                "threshold": 0.5,
+                "embedding_model": "all-MiniLM-L6-v2",
+            }
+        elif self.strategy == "recursive":
+            default_config = {
+                "chunk_size": 1000,
+                "chunk_overlap": 200,
+                "separators": ["\n\n", "\n", " ", ""],
+            }
+        elif self.strategy == "fixed_size":
+            default_config = {"chunk_size": 1000, "chunk_overlap": 200}
+        elif self.strategy == "token_based":
+            default_config = {
+                "chunk_size": 500,
+                "chunk_overlap": 50,
+                "encoding_name": "cl100k_base",
+            }
+        else:
+            default_config = {}
+
+        # Merge with provided config
+        merged_config = default_config.copy()
+        merged_config.update(self.config)
+        self.config = merged_config
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
