@@ -3,7 +3,6 @@ Tests for LightRAG Django models.
 """
 
 from django.test import TestCase
-from django.contrib.auth.models import User
 from django.utils import timezone
 from lightrag_app.models import Document, TextChunk, Entity, Relation
 
@@ -45,15 +44,8 @@ class DocumentStatusModelTest(TestCase):
     """Test cases for DocumentStatus model"""
 
     def setUp(self):
-        self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="testpass123"
-        )
-        self.workspace = Workspace.objects.create(
-            name="test-workspace", created_by=self.user
-        )
         self.document = Document.objects.create(
             id="test-doc-123",
-            workspace=self.workspace,
             title="Test Document",
             content="This is a test document content.",
         )

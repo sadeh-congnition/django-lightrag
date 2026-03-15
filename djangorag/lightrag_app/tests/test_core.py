@@ -5,7 +5,7 @@ Tests for LightRAG core functionality.
 from unittest.mock import Mock, patch
 from django.test import TestCase
 from django.contrib.auth.models import User
-from lightrag_app.models import Workspace, Document, TextChunk
+from lightrag_app.models import Document, TextChunk
 from lightrag_app.core import LightRAGCore, QueryParam, Tokenizer
 
 
@@ -49,19 +49,14 @@ class LightRAGCoreTest(TestCase):
         self.user = User.objects.create_user(
             username="testuser", email="test@example.com", password="testpass123"
         )
-        self.workspace = Workspace.objects.create(
-            name="test-workspace", created_by=self.user
-        )
-
         # Mock storage classes to avoid external dependencies
         with patch("lightrag_app.core.LadybugGraphStorage"), patch(
             "lightrag_app.core.ChromaVectorStorage"
         ):
-            self.core = LightRAGCore(self.workspace)
+            self.core = LightRAGCore()
 
     def test_core_initialization(self):
         """Test LightRAGCore initialization"""
-        self.assertEqual(self.core.workspace, self.workspace)
         self.assertIsNotNone(self.core.tokenizer)
         self.assertIsNotNone(self.core.graph_storage)
         self.assertIsNotNone(self.core.vector_storage)
@@ -120,7 +115,6 @@ class LightRAGCoreTest(TestCase):
         document = Document.objects.get(id=document_id)
         self.assertEqual(document.title, title)
         self.assertEqual(document.content, content)
-        self.assertEqual(document.workspace, self.workspace)
 
         # Verify status was updated
         self.assertEqual(document.status.status, "processed")
@@ -143,7 +137,7 @@ class LightRAGCoreTest(TestCase):
                 self.core.ingest_document(content=content, title="Test")
 
         # Verify document status is marked as failed
-        documents = Document.objects.filter(workspace=self.workspace, title="Test")
+        documents = Document.objects.filter(title="Test")
         if documents.exists():
             doc = documents.first()
             self.assertEqual(doc.status.status, "failed")
@@ -184,7 +178,6 @@ class LightRAGCoreTest(TestCase):
         # Create a document first
         _document = Document.objects.create(
             id="test-doc-delete",
-            workspace=self.workspace,
             title="Test Document for Deletion",
             content="Test content for deletion",
         )
@@ -208,7 +201,6 @@ class LightRAGCoreTest(TestCase):
         # Create a document
         _document = Document.objects.create(
             id="test-doc-status",
-            workspace=self.workspace,
             title="Test Document Status",
             content="Test content",
         )
@@ -231,7 +223,6 @@ class LightRAGCoreTest(TestCase):
         for i in range(3):
             _document = Document.objects.create(
                 id=f"test-doc-{i}",
-                workspace=self.workspace,
                 title=f"Test Document {i}",
                 content=f"Test content {i}",
             )

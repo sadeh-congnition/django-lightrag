@@ -75,7 +75,6 @@ class LadybugGraphStorage:
                     name STRING,
                     entity_type STRING,
                     description STRING,
-                    workspace_id STRING,
                     metadata STRING,
                     created_at TIMESTAMP,
                     updated_at TIMESTAMP
@@ -87,7 +86,6 @@ class LadybugGraphStorage:
                     document_id STRING PRIMARY KEY,
                     title STRING,
                     content STRING,
-                    workspace_id STRING,
                     metadata STRING,
                     created_at TIMESTAMP,
                     updated_at TIMESTAMP
@@ -101,7 +99,6 @@ class LadybugGraphStorage:
                     tokens INT,
                     chunk_order_index INT,
                     document_id STRING,
-                    workspace_id STRING,
                     metadata STRING,
                     created_at TIMESTAMP,
                     updated_at TIMESTAMP
@@ -141,7 +138,6 @@ class LadybugGraphStorage:
                 '{entity_data["name"]}',
                 '{entity_data["entity_type"]}',
                 '{entity_data.get("description", "")}',
-                '',
                 '{json.dumps(entity_data.get("metadata", {}))}',
                 '{datetime.now().isoformat()}',
                 '{datetime.now().isoformat()}'
@@ -203,10 +199,9 @@ class LadybugGraphStorage:
                     "name": entity_row[1],
                     "entity_type": entity_row[2],
                     "description": entity_row[3],
-                    "workspace_id": entity_row[4],
-                    "metadata": json.loads(entity_row[5]) if entity_row[5] else {},
-                    "created_at": entity_row[6],
-                    "updated_at": entity_row[7],
+                    "metadata": json.loads(entity_row[4]) if entity_row[4] else {},
+                    "created_at": entity_row[5],
+                    "updated_at": entity_row[6],
                 }
             return None
         except Exception as e:
@@ -258,10 +253,9 @@ class LadybugGraphStorage:
                         "name": row[1],
                         "entity_type": row[2],
                         "description": row[3],
-                        "workspace_id": row[4],
-                        "metadata": json.loads(row[5]) if row[5] else {},
-                        "created_at": row[6],
-                        "updated_at": row[7],
+                        "metadata": json.loads(row[4]) if row[4] else {},
+                        "created_at": row[5],
+                        "updated_at": row[6],
                     }
                 )
             return entities
