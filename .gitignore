@@ -20,3 +20,7 @@ coverage.xml
 .mypy_cache
 .pytest_cache
 .hypothesis
+
+djangorag.egg-info/
+django_lightrag.egg-info/
+dist/

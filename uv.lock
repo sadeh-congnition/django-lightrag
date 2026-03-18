@@ -896,7 +896,7 @@ wheels = [
 ]
 
 [[package]]
-name = "djangorag"
+name = "django_lightrag"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -38,6 +38,7 @@ DEFAULT_ENTITY_TYPES = [
     "Creature",
     "Organization",
     "Location",
+    "Date",
     "Event",
     "Concept",
     "Method",

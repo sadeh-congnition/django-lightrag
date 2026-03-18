@@ -1,16 +1,19 @@
 import hashlib
 import json
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
-from datetime import datetime
-import uuid
 
 import tiktoken
 from django.conf import settings
 
 from embed_gen.generator import generate_embeddings
 
+from .entity_extraction import (
+    DEFAULT_ENTITY_TYPES,
+    DEFAULT_SUMMARY_LANGUAGE,
+    extract_entities,
+)
 from .models import (
     Document,
     Entity,
@@ -87,6 +90,19 @@ class LightRAGCore:
         self.embedding_base_url = self.config.get(
             "EMBEDDING_BASE_URL", "http://localhost:1234"
         )
+        self.llm_model = self.config.get("LLM_MODEL", "gpt-4o-mini")
+        self.llm_temperature = self.config.get("LLM_TEMPERATURE", 0.0)
+        self.entity_extract_max_gleaning = self.config.get(
+            "ENTITY_EXTRACT_MAX_GLEANING", 1
+        )
+        self.max_extract_input_tokens = self.config.get(
+            "MAX_EXTRACT_INPUT_TOKENS", 12000
+        )
+        self.extraction_language = self.config.get(
+            "EXTRACTION_LANGUAGE", DEFAULT_SUMMARY_LANGUAGE
+        )
+        self.entity_types = self.config.get("ENTITY_TYPES", DEFAULT_ENTITY_TYPES)
+        self._llm_model_func = None
 
     def _generate_id(self, content: str) -> str:
         """Generate a consistent ID from content"""
@@ -126,33 +142,210 @@ class LightRAGCore:
 
     def _extract_knowledge_graph_from_document(self, document: Document):
         """Extract entities and relations from a document"""
-        # This is a simplified version - in practice, you'd use LLM for extraction
-        # Simple entity extraction (placeholder)
-        entities = self._extract_entities_from_document(document)
+        extracted_entities, extracted_relations = self._llm_extract_entities_relations(
+            document
+        )
 
-        # Save entities
-        for entity_data in entities:
-            entity, created = Entity.objects.get_or_create(
-                id=entity_data["id"],
-                defaults={
-                    "name": entity_data["name"],
-                    "entity_type": entity_data["entity_type"],
-                    "description": entity_data.get("description", ""),
-                    "source_ids": [document.id],
-                    "metadata": entity_data.get("metadata", {}),
+        entity_objects = self._persist_entities(document, extracted_entities)
+        self._persist_relations(document, extracted_relations, entity_objects)
+
+    def _build_llm_model_func(self):
+        try:
+            from django_llm_chat.chat import Chat, DuplicateSystemMessageError
+            from django_llm_chat.models import Message
+        except ImportError as exc:
+            raise RuntimeError(
+                "django-llm-chat package not installed. Add it to dependencies to "
+                "enable LLM extraction."
+            ) from exc
+
+        def _call_llm(
+            user_prompt: str,
+            system_prompt: Optional[str] = None,
+            history_messages: Optional[List[Dict[str, str]]] = None,
+            max_tokens: Optional[int] = None,
+        ) -> str:
+            chat = Chat.create()
+
+            if system_prompt:
+                try:
+                    chat.create_system_message(system_prompt)
+                except DuplicateSystemMessageError:
+                    pass
+
+            if history_messages:
+                for msg in history_messages:
+                    role = (msg.get("role") or msg.get("type") or "user").lower()
+                    content = msg.get("content", "")
+                    if not content:
+                        continue
+                    if role == "system":
+                        try:
+                            chat.create_system_message(content)
+                        except DuplicateSystemMessageError:
+                            continue
+                    elif role == "assistant":
+                        Message.create_llm_message(
+                            chat=chat.chat_db_model,
+                            text=content,
+                            user=chat.llm_user,
+                        )
+                    else:
+                        chat.create_user_message(content)
+
+            llm_msg, _, _ = chat.send_user_msg_to_llm(
+                self.llm_model,
+                user_prompt,
+                include_chat_history=True,
+                temperature=self.llm_temperature,
+                max_tokens=max_tokens,
+            )
+            return llm_msg.text or ""
+
+        return _call_llm
+
+    def _relation_type_from_keywords(self, keywords: str) -> str:
+        if not keywords:
+            return "related_to"
+        primary = keywords.split(",")[0].strip()
+        return primary[:100] if primary else "related_to"
+
+    def _llm_extract_entities_relations(
+        self, document: Document
+    ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+        if self._llm_model_func is None:
+            self._llm_model_func = self._build_llm_model_func()
+
+        document_payload = {
+            document.id: {
+                "tokens": self.tokenizer.count_tokens(document.content),
+                "content": document.content,
+                "full_doc_id": document.id,
+                "chunk_order_index": 0,
+            }
+        }
+
+        global_config = {
+            "llm_model_func": self._llm_model_func,
+            "entity_extract_max_gleaning": self.entity_extract_max_gleaning,
+            "addon_params": {
+                "language": self.extraction_language,
+                "entity_types": self.entity_types,
+            },
+            "tokenizer": self.tokenizer,
+            "max_extract_input_tokens": self.max_extract_input_tokens,
+        }
+
+        document_results = extract_entities(document_payload, global_config)
+
+        entity_by_name: Dict[str, Dict[str, Any]] = {}
+        relation_by_key: Dict[str, Dict[str, Any]] = {}
+
+        for maybe_nodes, maybe_edges in document_results:
+            for entity_name, entity_list in maybe_nodes.items():
+                if not entity_list:
+                    continue
+                best = max(
+                    entity_list, key=lambda item: len(item.get("description", "") or "")
+                )
+                existing = entity_by_name.get(entity_name)
+                if existing is None or len(best.get("description", "")) > len(
+                    existing.get("description", "")
+                ):
+                    entity_by_name[entity_name] = best
+
+            for (src_name, tgt_name), relation_list in maybe_edges.items():
+                if not relation_list:
+                    continue
+                best = max(
+                    relation_list,
+                    key=lambda item: len(item.get("description", "") or ""),
+                )
+                relation_type = self._relation_type_from_keywords(
+                    best.get("keywords", "")
+                )
+                sorted_key = "::".join(sorted([src_name, tgt_name]) + [relation_type])
+                existing = relation_by_key.get(sorted_key)
+                if existing is None or len(best.get("description", "")) > len(
+                    existing.get("description", "")
+                ):
+                    relation_by_key[sorted_key] = {
+                        **best,
+                        "relation_type": relation_type,
+                    }
+
+        return entity_by_name, relation_by_key
+
+    def _persist_entities(
+        self, document: Document, entity_by_name: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Entity]:
+        entity_objects: Dict[str, Entity] = {}
+        for entity_name, entity_data in entity_by_name.items():
+            entity_type = entity_data.get("entity_type", "other") or "other"
+            entity_id = self._generate_id(f"entity:{entity_name}:{entity_type}")
+            defaults = {
+                "name": entity_name,
+                "entity_type": entity_type,
+                "description": entity_data.get("description", ""),
+                "source_ids": [document.id],
+                "metadata": {
+                    "source_id": entity_data.get("source_id"),
+                    "timestamp": entity_data.get("timestamp"),
                 },
+            }
+
+            entity, created = Entity.objects.get_or_create(
+                id=entity_id, defaults=defaults
             )
 
             if not created:
-                # Update existing entity
                 updated = False
+                if (
+                    entity_data.get("description")
+                    and len(entity_data["description"]) > len(entity.description or "")
+                ):
+                    entity.description = entity_data["description"]
+                    updated = True
                 if document.id not in entity.source_ids:
                     entity.source_ids.append(document.id)
                     updated = True
                 if updated:
                     entity.save()
 
-            # Add to graph storage
+            if created:
+                self.graph_storage.add_entity(
+                    {
+                        "id": entity.id,
+                        "name": entity.name,
+                        "entity_type": entity.entity_type,
+                        "description": entity.description,
+                        "metadata": entity.metadata,
+                    }
+                )
+
+            entity_objects[entity_name] = entity
+
+        return entity_objects
+
+    def _get_or_create_placeholder_entity(
+        self, document: Document, entity_objects: Dict[str, Entity], entity_name: str
+    ) -> Entity:
+        if entity_name in entity_objects:
+            return entity_objects[entity_name]
+
+        entity_type = "other"
+        entity_id = self._generate_id(f"entity:{entity_name}:{entity_type}")
+        entity, created = Entity.objects.get_or_create(
+            id=entity_id,
+            defaults={
+                "name": entity_name,
+                "entity_type": entity_type,
+                "description": "",
+                "source_ids": [document.id],
+                "metadata": {"auto_created": True},
+            },
+        )
+        if created:
             self.graph_storage.add_entity(
                 {
                     "id": entity.id,
@@ -162,64 +355,81 @@ class LightRAGCore:
                     "metadata": entity.metadata,
                 }
             )
+        entity_objects[entity_name] = entity
+        return entity
 
-        # Simple relation extraction (placeholder)
-        relations = self._extract_relations_from_document(document, entities)
+    def _persist_relations(
+        self,
+        document: Document,
+        relation_by_key: Dict[str, Dict[str, Any]],
+        entity_objects: Dict[str, Entity],
+    ) -> None:
+        for relation_data in relation_by_key.values():
+            src_name = relation_data.get("src_id")
+            tgt_name = relation_data.get("tgt_id")
+            if not src_name or not tgt_name:
+                continue
 
-        # Save relations
-        for relation_data in relations:
-            relation, created = Relation.objects.get_or_create(
-                id=relation_data["id"],
-                defaults={
-                    "source_entity": Entity.objects.get(
-                        id=relation_data["source_entity"]
-                    ),
-                    "target_entity": Entity.objects.get(
-                        id=relation_data["target_entity"]
-                    ),
-                    "relation_type": relation_data["relation_type"],
-                    "description": relation_data.get("description", ""),
-                    "source_ids": [document.id],
-                    "metadata": relation_data.get("metadata", {}),
+            source_entity = self._get_or_create_placeholder_entity(
+                document, entity_objects, src_name
+            )
+            target_entity = self._get_or_create_placeholder_entity(
+                document, entity_objects, tgt_name
+            )
+
+            relation_type = relation_data.get(
+                "relation_type"
+            ) or self._relation_type_from_keywords(relation_data.get("keywords", ""))
+            relation_type = relation_type[:100] if relation_type else "related_to"
+
+            relation_id = self._generate_id(
+                f"relation:{min(source_entity.id, target_entity.id)}:"
+                f"{max(source_entity.id, target_entity.id)}:{relation_type}"
+            )
+
+            defaults = {
+                "source_entity": source_entity,
+                "target_entity": target_entity,
+                "relation_type": relation_type,
+                "description": relation_data.get("description", ""),
+                "source_ids": [document.id],
+                "weight": relation_data.get("weight", 1.0),
+                "metadata": {
+                    "keywords": relation_data.get("keywords", ""),
+                    "source_id": relation_data.get("source_id"),
+                    "timestamp": relation_data.get("timestamp"),
                 },
+            }
+
+            relation, created = Relation.objects.get_or_create(
+                id=relation_id, defaults=defaults
             )
 
             if not created:
-                # Update existing relation
                 updated = False
+                if (
+                    relation_data.get("description")
+                    and len(relation_data["description"]) > len(relation.description or "")
+                ):
+                    relation.description = relation_data["description"]
+                    updated = True
                 if document.id not in relation.source_ids:
                     relation.source_ids.append(document.id)
                     updated = True
                 if updated:
                     relation.save()
 
-            # Add to graph storage
-            self.graph_storage.add_relation(
-                {
-                    "id": relation.id,
-                    "source_entity": relation.source_entity.id,
-                    "target_entity": relation.target_entity.id,
-                    "relation_type": relation.relation_type,
-                    "description": relation.description,
-                    "metadata": relation.metadata,
-                }
-            )
-
-    def _extract_entities_from_document(
-        self, document: Document
-    ) -> List[Dict[str, Any]]:
-        """Extract entities from a document (simplified placeholder)"""
-        # In practice, this would use an LLM to extract entities
-        # For now, return empty list as placeholder
-        return []
-
-    def _extract_relations_from_document(
-        self, document: Document, entities: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Extract relations from a document (simplified placeholder)"""
-        # In practice, this would use an LLM to extract relations
-        # For now, return empty list as placeholder
-        return []
+            if created:
+                self.graph_storage.add_relation(
+                    {
+                        "id": relation.id,
+                        "source_entity": relation.source_entity.id,
+                        "target_entity": relation.target_entity.id,
+                        "relation_type": relation.relation_type,
+                        "description": relation.description,
+                        "metadata": relation.metadata,
+                    }
+                )
 
     def _generate_document_embeddings(self, document: Document):
         """Generate embeddings for a document"""

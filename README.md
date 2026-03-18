@@ -3,16 +3,17 @@
 LightRAG as a reusable Django app, plus a small example project. It exposes a REST API (via `django-ninja`) and management commands for ingesting and querying documents with a graph + vector hybrid backend.
 
 **Highlights**
-- Django app: `djangorag.lightrag_app`
+- Django app: `django_lightrag.lightrag_app`
 - REST API: `/api/lightrag/...` with interactive docs at `/api/docs/`
 - Management commands for ingest/list/query
 - Storage: LadybugDB for graph + ChromaDB for vectors
 
 ## Requirements
-- Python `>=3.10`
-- Django `4.2.x`
+- Python `>=3.13`
+- Django `5.2.x`
 - ChromaDB and LadybugDB (`chromadb`, `real-ladybug`)
 - An embeddings provider reachable at `LIGHTRAG_EMBEDDING_BASE_URL`
+- LLM calls are routed through `django-llm-chat` (via `litellm`)
 
 ## Install
 This repo is packaged with `pyproject.toml`.
@@ -35,10 +36,19 @@ Set these in your Django settings (environment variables are supported for Light
 
 ```python
 # settings.py
+INSTALLED_APPS = [
+    # ...
+    "django_llm_chat",
+    "django_lightrag.lightrag_app",
+]
+
 LIGHTRAG = {
     "EMBEDDING_PROVIDER": "LMStudio",
     "EMBEDDING_MODEL": "text-embedding-embeddinggemma-300m",
     "EMBEDDING_BASE_URL": "http://localhost:1234",
+    # LLM settings for entity + relation extraction
+    "LLM_MODEL": "gpt-4o-mini",
+    "LLM_TEMPERATURE": 0.0,
 }
 
 # Optional storage settings
@@ -51,6 +61,9 @@ LADYBUGDB = {
 }
 ```
 
+LLM provider credentials and base URLs are handled by `django-llm-chat`/`litellm`
+configuration (for example, environment variables for LM Studio or other providers).
+
 ## Wire Up URLs
 The app ships with its own URL config. In your project `urls.py`, include it:
 
@@ -60,7 +73,7 @@ from django.urls import include, path
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("", include("djangorag.lightrag_app.urls")),
+    path("", include("django_lightrag.lightrag_app.urls")),
 ]
 ```
 

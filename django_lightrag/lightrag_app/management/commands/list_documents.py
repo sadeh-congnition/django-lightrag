@@ -21,7 +21,7 @@ class Command(BaseCommand):
         output_format = options["format"]
 
         # Get documents
-        from djangorag.lightrag_app.core import LightRAGCore
+        from django_lightrag.lightrag_app.core import LightRAGCore
 
         try:
             core = LightRAGCore()

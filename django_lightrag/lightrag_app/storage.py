@@ -127,13 +127,19 @@ class LadybugGraphStorage:
         relation_id = relation_data.get("id", str(uuid.uuid4()))
 
         # First ensure source and target entities exist
-        self.add_entity_if_not_exists(relation_data["source_entity"])
-        self.add_entity_if_not_exists(relation_data["target_entity"])
+        source_ref = relation_data["source_entity"]
+        target_ref = relation_data["target_entity"]
+
+        source_id = source_ref["id"] if isinstance(source_ref, dict) else source_ref
+        target_id = target_ref["id"] if isinstance(target_ref, dict) else target_ref
+
+        self.add_entity_if_not_exists(source_ref)
+        self.add_entity_if_not_exists(target_ref)
 
         query = f"""
             INSERT INTO RELATED_TO VALUES (
-                (SELECT node_id FROM Entity WHERE entity_id = '{relation_data["source_entity"]}'),
-                (SELECT node_id FROM Entity WHERE entity_id = '{relation_data["target_entity"]}')
+                (SELECT node_id FROM Entity WHERE entity_id = '{source_id}'),
+                (SELECT node_id FROM Entity WHERE entity_id = '{target_id}')
             )
         """
 
@@ -143,9 +149,20 @@ class LadybugGraphStorage:
         except Exception as e:
             raise RuntimeError(f"Failed to add relation: {e}")
 
-    def add_entity_if_not_exists(self, entity_data: Dict[str, Any]):
+    def add_entity_if_not_exists(self, entity_data: Union[Dict[str, Any], str]):
         """Add entity only if it doesn't exist"""
-        entity_id = entity_data["id"]
+        if isinstance(entity_data, str):
+            entity_payload = {
+                "id": entity_data,
+                "name": entity_data,
+                "entity_type": "unknown",
+                "description": "",
+                "metadata": {},
+            }
+        else:
+            entity_payload = entity_data
+
+        entity_id = entity_payload["id"]
 
         # Check if entity exists
         result = self.conn.execute(f"""
@@ -153,7 +170,7 @@ class LadybugGraphStorage:
         """)
 
         if not list(result):
-            self.add_entity(entity_data)
+            self.add_entity(entity_payload)
 
     def get_entity(self, entity_id: str) -> Optional[Dict[str, Any]]:
         """Get an entity by ID"""
