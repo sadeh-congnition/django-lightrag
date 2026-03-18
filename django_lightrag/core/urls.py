@@ -1,5 +1,5 @@
 """
-URL configuration for lightrag_app.
+URL configuration for core.
 """
 
 from django.urls import path

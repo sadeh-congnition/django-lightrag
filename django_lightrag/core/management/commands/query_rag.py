@@ -3,7 +3,7 @@ Django management command to query the LightRAG system.
 """
 
 from django.core.management.base import BaseCommand, CommandError
-from django_lightrag.lightrag_app.core import LightRAGCore, QueryParam
+from django_lightrag.core.core import LightRAGCore, QueryParam
 
 
 class Command(BaseCommand):

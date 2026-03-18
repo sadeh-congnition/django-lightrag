@@ -3,7 +3,7 @@
 LightRAG as a reusable Django app, plus a small example project. It exposes a REST API (via `django-ninja`) and management commands for ingesting and querying documents with a graph + vector hybrid backend.
 
 **Highlights**
-- Django app: `django_lightrag.lightrag_app`
+- Django app: `django_lightrag.core`
 - REST API: `/api/lightrag/...` with interactive docs at `/api/docs/`
 - Management commands for ingest/list/query
 - Storage: LadybugDB for graph + ChromaDB for vectors
@@ -39,7 +39,7 @@ Set these in your Django settings (environment variables are supported for Light
 INSTALLED_APPS = [
     # ...
     "django_llm_chat",
-    "django_lightrag.lightrag_app",
+    "django_lightrag.core",
 ]
 
 LIGHTRAG = {
@@ -73,7 +73,7 @@ from django.urls import include, path
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("", include("django_lightrag.lightrag_app.urls")),
+    path("", include("django_lightrag.core.urls")),
 ]
 ```
 
