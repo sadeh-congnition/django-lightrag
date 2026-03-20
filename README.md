@@ -109,7 +109,7 @@ Example ingest:
 ```bash
 curl -X POST http://localhost:8001/api/lightrag/documents/ingest \
   -H 'Content-Type: application/json' \
-  -d '{"title": "LightRAG Intro", "content": "LightRAG blends knowledge graphs with vector search.", "metadata": {"source": "readme"}}'
+  -d '{"content": "LightRAG blends knowledge graphs with vector search.", "metadata": {"source": "readme"}}'
 ```
 
 Example query:
@@ -122,7 +122,7 @@ curl -X POST http://localhost:8001/api/lightrag/query \
 
 ## Management Commands
 ```bash
-python manage.py ingest_document --content "LightRAG is a retrieval-augmented generation framework." --title "Intro"
+python manage.py ingest_document --content "LightRAG is a retrieval-augmented generation framework."
 python manage.py list_documents --format table
 python manage.py query_rag "What is LightRAG?" --mode hybrid --top-k 5 --include-sources
 ```

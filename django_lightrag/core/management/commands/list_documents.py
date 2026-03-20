@@ -39,26 +39,18 @@ class Command(BaseCommand):
                 else:
                     # Table format
                     self.stdout.write(self.style.SUCCESS("Documents in the system:"))
-                    self.stdout.write("-" * 118)
-                    self.stdout.write(
-                        f"{'ID':<36} {'Title':<30} {'Track ID':<20} {'Created':<20}"
-                    )
-                    self.stdout.write("-" * 118)
+                    self.stdout.write("-" * 88)
+                    self.stdout.write(f"{'ID':<36} {'Track ID':<20} {'Created':<20}")
+                    self.stdout.write("-" * 88)
 
                     for doc in documents:
-                        title = (
-                            (doc["title"][:27] + "...")
-                            if len(doc["title"]) > 30
-                            else doc["title"]
-                        )
                         created = doc["created_at"][:19].replace("T", " ")
 
                         self.stdout.write(
-                            f"{doc['id']:<36} {title:<30} {doc['track_id']:<20} "
-                            f"{created:<20}"
+                            f"{doc['id']:<36} {doc['track_id']:<20} {created:<20}"
                         )
 
-                    self.stdout.write("-" * 118)
+                    self.stdout.write("-" * 88)
                     self.stdout.write(f"Total: {len(documents)} documents")
             finally:
                 core.close()

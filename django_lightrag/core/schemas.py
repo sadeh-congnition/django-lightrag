@@ -8,14 +8,12 @@ from ninja import Schema
 
 class DocumentIngestSchema(Schema):
     content: str
-    title: str = ""
     track_id: str = ""
     metadata: Dict[str, Any] = {}
 
 
 class DocumentSchema(Schema):
     id: str
-    title: str
     track_id: str
     created_at: str
     updated_at: str

@@ -1,12 +1,11 @@
 import hashlib
 import json
 import time
-from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from typing import Any
 
 import tiktoken
 from django.conf import settings
-
 from embed_gen.generator import generate_embeddings
 
 from .entity_extraction import (
@@ -20,7 +19,7 @@ from .models import (
     Relation,
     VectorEmbedding,
 )
-from .storage import LadybugGraphStorage, ChromaVectorStorage
+from .storage import ChromaVectorStorage, LadybugGraphStorage
 
 
 @dataclass
@@ -39,8 +38,8 @@ class QueryResult:
     """Result of a RAG query"""
 
     response: str
-    sources: List[Dict[str, Any]]
-    context: Dict[str, Any]
+    sources: list[dict[str, Any]]
+    context: dict[str, Any]
     query_time: float
     tokens_used: int
 
@@ -52,10 +51,10 @@ class Tokenizer:
         self.model_name = model_name
         self.tokenizer = tiktoken.encoding_for_model(model_name)
 
-    def encode(self, text: str) -> List[int]:
+    def encode(self, text: str) -> list[int]:
         return self.tokenizer.encode(text)
 
-    def decode(self, tokens: List[int]) -> str:
+    def decode(self, tokens: list[int]) -> str:
         return self.tokenizer.decode(tokens)
 
     def count_tokens(self, text: str) -> int:
@@ -77,7 +76,9 @@ class LightRAGCore:
         self.vector_storage = ChromaVectorStorage()
 
         # Load configuration from settings
-        self.config = getattr(settings, "LIGHTRAG", {})
+        self.config = getattr(
+            settings, "LIGHTRAG", {}
+        )  # TODO: Review the settings, document them
         self.top_k = self.config.get("TOP_K", 10)
         self.max_entity_tokens = self.config.get("MAX_ENTITY_TOKENS", 8000)
         self.max_relation_tokens = self.config.get("MAX_RELATION_TOKENS", 4000)
@@ -111,9 +112,8 @@ class LightRAGCore:
     def ingest_document(
         self,
         content: str,
-        title: str = "",
-        metadata: Dict[str, Any] = None,
-        track_id: str = "",
+        metadata: dict[str, Any] | None = None,
+        track_id: str = "",  # TODO this should be a `dict` of `metadata`
     ) -> str:
         """Ingest a document into the RAG system"""
         document_id = self._generate_id(content)
@@ -122,7 +122,6 @@ class LightRAGCore:
         # Create document
         document = Document.objects.create(
             id=document_id,
-            title=title,
             content=content,
             metadata=metadata,
             track_id=track_id,
@@ -137,7 +136,7 @@ class LightRAGCore:
 
             return document_id
 
-        except Exception as e:
+        except Exception:
             raise
 
     def _extract_knowledge_graph_from_document(self, document: Document):
@@ -161,9 +160,9 @@ class LightRAGCore:
 
         def _call_llm(
             user_prompt: str,
-            system_prompt: Optional[str] = None,
-            history_messages: Optional[List[Dict[str, str]]] = None,
-            max_tokens: Optional[int] = None,
+            system_prompt: str | None = None,
+            history_messages: List[Dict[str, str]] | None = None,
+            max_tokens: int | None = None,
         ) -> str:
             chat = Chat.create()
 
@@ -300,10 +299,9 @@ class LightRAGCore:
 
             if not created:
                 updated = False
-                if (
-                    entity_data.get("description")
-                    and len(entity_data["description"]) > len(entity.description or "")
-                ):
+                if entity_data.get("description") and len(
+                    entity_data["description"]
+                ) > len(entity.description or ""):
                     entity.description = entity_data["description"]
                     updated = True
                 if document.id not in entity.source_ids:
@@ -407,10 +405,9 @@ class LightRAGCore:
 
             if not created:
                 updated = False
-                if (
-                    relation_data.get("description")
-                    and len(relation_data["description"]) > len(relation.description or "")
-                ):
+                if relation_data.get("description") and len(
+                    relation_data["description"]
+                ) > len(relation.description or ""):
                     relation.description = relation_data["description"]
                     updated = True
                 if document.id not in relation.source_ids:
@@ -451,7 +448,6 @@ class LightRAGCore:
             metadata={
                 "content": document.content[:500],  # First 500 chars
                 "document_id": document.id,
-                "document_title": document.title,
             },
         )
 
@@ -565,7 +561,6 @@ class LightRAGCore:
                 {
                     "content": document_text,
                     "document_id": document.id,
-                    "document_title": document.title or document.id[:50],
                 }
             )
             context["total_tokens"] += self.tokenizer.count_tokens(document_text)
@@ -648,7 +643,6 @@ The actual implementation would use the context to provide a detailed, relevant 
                     if len(document.content) > 200
                     else document.content,
                     "document_id": document.id,
-                    "document_title": document.title or document.id[:50],
                 }
             )
 

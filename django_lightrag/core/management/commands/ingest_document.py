@@ -11,14 +11,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--content", type=str, help="Direct text content to ingest")
-        parser.add_argument("--title", type=str, default="", help="Document title")
         parser.add_argument(
             "--track-id", type=str, default="", help="Tracking ID for the document"
         )
 
     def handle(self, *args, **options):
         content = options.get("content")
-        title = options.get("title", "")
         track_id = options.get("track_id", "")
 
         if not content:
@@ -30,7 +28,6 @@ class Command(BaseCommand):
             try:
                 document_id = core.ingest_document(
                     content=content,
-                    title=title,
                     track_id=track_id,
                 )
                 self.stdout.write(

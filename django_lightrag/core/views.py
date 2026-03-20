@@ -30,7 +30,6 @@ def ingest_document(request, data: DocumentIngestSchema):
         try:
             document_id = core.ingest_document(
                 content=data.content,
-                title=data.title,
                 metadata=data.metadata,
                 track_id=data.track_id,
             )

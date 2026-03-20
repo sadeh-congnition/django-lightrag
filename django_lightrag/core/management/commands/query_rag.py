@@ -86,10 +86,6 @@ class Command(BaseCommand):
                         )
                         if "content" in source:
                             self.stdout.write(f"   {source['content'][:200]}...")
-                        if "document_title" in source:
-                            self.stdout.write(
-                                f"   Document: {source['document_title']}"
-                            )
 
                 if include_context:
                     self.stdout.write("=" * 50)

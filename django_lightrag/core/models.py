@@ -7,7 +7,6 @@ class Document(models.Model):
     """Document representation in the RAG system"""
 
     id = models.CharField(max_length=255, primary_key=True)  # MD5 hash or UUID
-    title = models.CharField(max_length=500, blank=True)
     content = models.TextField()
     metadata = models.JSONField(default=dict, blank=True)
     track_id = models.CharField(max_length=100, blank=True, db_index=True)
@@ -21,7 +20,7 @@ class Document(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.title or self.id[:50]}..."
+        return f"{self.id[:50]}..."
 
 
 class Entity(models.Model):
