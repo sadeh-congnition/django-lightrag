@@ -170,27 +170,105 @@ class LightRAGCore:
         param.low_level_keywords = extracted_keywords.low_level_keywords
         param.high_level_keywords = extracted_keywords.high_level_keywords
 
-        # 1. Generate retrieval embeddings
-        document_query_embedding = self._get_query_embedding(query_text)
-        entity_query_embedding = self._get_query_embedding(
-            self._keyword_text_or_query(param.low_level_keywords, query_text)
-        )
-        relation_query_embedding = self._get_query_embedding(
-            self._keyword_text_or_query(param.high_level_keywords, query_text)
+        # 1. Prepare and batch embed query texts
+        document_branch = {
+            "query_text": query_text,
+            "query_source": "raw",
+        }
+        entity_branch = {
+            "query_text": ", ".join(param.low_level_keywords)
+            if param.low_level_keywords
+            else query_text,
+            "query_source": "keyword" if param.low_level_keywords else "fallback",
+        }
+        relation_branch = {
+            "query_text": ", ".join(param.high_level_keywords)
+            if param.high_level_keywords
+            else query_text,
+            "query_source": "keyword" if param.high_level_keywords else "fallback",
+        }
+
+        embeddings = self._get_embeddings(
+            [
+                document_branch["query_text"],
+                entity_branch["query_text"],
+                relation_branch["query_text"],
+            ]
         )
 
-        # 2. Retrieval using QueryEngine
-        relevant_documents = self.query_engine.retrieve_documents(
-            document_query_embedding, param.top_k
+        document_branch["embedding"] = embeddings[0]
+        entity_branch["embedding"] = embeddings[1]
+        relation_branch["embedding"] = embeddings[2]
+
+        # 2. Vector Search (Raw Vector Matches)
+        doc_vectors = self.query_engine.search_document_vectors(
+            document_branch["embedding"], param.top_k
         )
-        relevant_entities, relevant_relations = self._retrieve_knowledge_graph(
-            entity_query_embedding, relation_query_embedding, param
+        ent_vectors, rel_vectors = self._retrieve_knowledge_graph_vectors(
+            entity_branch["embedding"], relation_branch["embedding"], param
         )
 
-        # 3. Build context and generate response
+        # 3. Hydrate into ORM Models
+        relevant_documents = self.query_engine.hydrate_documents(
+            doc_vectors, param.top_k
+        )
+        relevant_entities = self.query_engine.hydrate_entities(ent_vectors)
+        relevant_relations = self.query_engine.hydrate_relations(rel_vectors)
+
+        # 4. Build context and generate response
         context = self.query_engine.build_context(
             relevant_documents, relevant_entities, relevant_relations, param
         )
+
+        # 5. Inject Vector Matching Debug Context
+        context["vector_matching"] = {
+            "documents": {
+                "query_text": document_branch["query_text"],
+                "query_source": document_branch["query_source"],
+                "hits": [
+                    {"id": hit["id"], "score": hit["score"], "rank": rank + 1}
+                    for rank, hit in enumerate(doc_vectors)
+                ],
+                "selected_ids": [d["document_id"] for d in context["documents"]],
+            },
+            "entities": {
+                "query_text": entity_branch["query_text"],
+                "query_source": entity_branch["query_source"],
+                "hits": [
+                    {
+                        "id": hit["metadata"].get("entity_id", hit["id"]),
+                        "name": hit["metadata"].get("name", "Unknown Entity"),
+                        "profile_key": hit["metadata"].get("profile_key", ""),
+                        "score": hit["score"],
+                        "rank": rank + 1,
+                    }
+                    for rank, hit in enumerate(ent_vectors)
+                ],
+                "selected_ids": [
+                    e.id for e in relevant_entities[: len(context["entities"])]
+                ],
+            },
+            "relations": {
+                "query_text": relation_branch["query_text"],
+                "query_source": relation_branch["query_source"],
+                "hits": [
+                    {
+                        "id": hit["metadata"].get("relation_id", hit["id"]),
+                        "source": hit["metadata"].get("source_entity_id", ""),
+                        "relation_type": hit["metadata"].get("relation_type", ""),
+                        "target": hit["metadata"].get("target_entity_id", ""),
+                        "profile_key": hit["metadata"].get("profile_key", ""),
+                        "score": hit["score"],
+                        "rank": rank + 1,
+                    }
+                    for rank, hit in enumerate(rel_vectors)
+                ],
+                "selected_ids": [
+                    r.id for r in relevant_relations[: len(context["relations"])]
+                ],
+            },
+        }
+
         response = self.query_engine.generate_response(query_text, context, param)
 
         query_time = time.time() - start_time
@@ -205,16 +283,16 @@ class LightRAGCore:
             tokens_used=self.tokenizer.count_tokens(response),
         )
 
-    def _retrieve_knowledge_graph(
+    def _retrieve_knowledge_graph_vectors(
         self,
         entity_query_embedding: list[float],
         relation_query_embedding: list[float],
         param: QueryParam,
-    ) -> tuple[list[Entity], list[Relation]]:
+    ) -> tuple[list[dict], list[dict]]:
         mode = param.mode.lower()
         if mode == "local":
             return (
-                self.query_engine.retrieve_entities(
+                self.query_engine.search_entity_vectors(
                     entity_query_embedding, param.top_k
                 ),
                 [],
@@ -222,21 +300,20 @@ class LightRAGCore:
         if mode == "global":
             return (
                 [],
-                self.query_engine.retrieve_relations(
+                self.query_engine.search_relation_vectors(
                     relation_query_embedding, param.top_k
                 ),
             )
 
-        entities = self.query_engine.retrieve_entities(
+        entities = self.query_engine.search_entity_vectors(
             entity_query_embedding, param.top_k
         )
-        relations = self.query_engine.retrieve_relations(
+        relations = self.query_engine.search_relation_vectors(
             relation_query_embedding, param.top_k
         )
-        return (
-            self.query_engine.merge_unique_records(entities),
-            self.query_engine.merge_unique_records(relations),
-        )
+
+        # Note: deduplication/merging is handled during ORM hydration
+        return entities, relations
 
     def _resolve_query_keywords(
         self, query_text: str, param: QueryParam

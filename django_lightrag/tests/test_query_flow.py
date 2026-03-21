@@ -69,7 +69,12 @@ class QueryVectorStorage:
 
 
 class DeterministicQueryCore(LightRAGCore):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.embedding_calls = []
+
     def _get_embeddings(self, texts: list[str]) -> list[list[float]]:
+        self.embedding_calls.append(texts)
         embeddings: list[list[float]] = []
         for text in texts:
             lowered = text.lower()
@@ -142,13 +147,13 @@ def build_core(llm_response: str) -> DeterministicQueryCore:
         "entity",
         entity.id,
         core._get_embeddings(["Policy Engine"])[0],
-        metadata={"entity_id": entity.id},
+        metadata={"entity_id": entity.id, "profile_key": entity.profile_key},
     )
     vector_storage.upsert_embedding(
         "relation",
         relation.id,
         core._get_embeddings(["governance"])[0],
-        metadata={"relation_id": relation.id},
+        metadata={"relation_id": relation.id, "profile_key": relation.profile_key},
     )
     return core
 
@@ -164,6 +169,9 @@ def test_query_uses_split_keywords_for_retrieval_and_context():
         )
     )
 
+    # Clear previous calls from build_core
+    core.embedding_calls.clear()
+
     result = core.query("How are decisions enforced?", QueryParam(mode="hybrid"))
 
     assert [source["type"] for source in result.sources] == [
@@ -177,6 +185,25 @@ def test_query_uses_split_keywords_for_retrieval_and_context():
     }
     assert result.context["entities"][0]["name"] == "Policy Engine"
     assert result.context["relations"][0]["relation_type"] == "governs"
+
+    # Assert exactly one batched embedding call was made for retrieval
+    assert len(core.embedding_calls) == 1
+    assert core.embedding_calls[0] == [
+        "How are decisions enforced?",
+        "Policy Engine",
+        "governance",
+    ]
+
+    # Assert vector_matching metadata
+    vector_match = result.context["vector_matching"]
+    assert vector_match["entities"]["query_source"] == "keyword"
+    assert vector_match["entities"]["hits"][0]["profile_key"] == "Policy Engine"
+    assert "score" in vector_match["entities"]["hits"][0]
+
+    assert vector_match["relations"]["query_source"] == "keyword"
+    assert vector_match["relations"]["hits"][0]["profile_key"] == "governance"
+
+    assert vector_match["documents"]["query_source"] == "raw"
 
 
 @pytest.mark.django_db
@@ -197,15 +224,22 @@ def test_query_mode_controls_knowledge_graph_retrieval():
         "Policy Engine"
     ]
     assert local_result.context["relations"] == []
+    assert len(local_result.context["vector_matching"]["entities"]["hits"]) > 0
+    assert len(local_result.context["vector_matching"]["relations"]["hits"]) == 0
+
     assert global_result.context["entities"] == []
     assert [item["relation_type"] for item in global_result.context["relations"]] == [
         "governs"
     ]
+    assert len(global_result.context["vector_matching"]["entities"]["hits"]) == 0
+    assert len(global_result.context["vector_matching"]["relations"]["hits"]) > 0
 
 
 @pytest.mark.django_db
 def test_query_falls_back_to_raw_query_when_keyword_extraction_fails():
     core = build_core("not valid json")
+
+    core.embedding_calls.clear()
 
     result = core.query("Policy Engine governance document", QueryParam(mode="hybrid"))
 
@@ -217,6 +251,18 @@ def test_query_falls_back_to_raw_query_when_keyword_extraction_fails():
     assert [item["relation_type"] for item in result.context["relations"]] == [
         "governs"
     ]
+
+    # Verify fallback query text
+    assert len(core.embedding_calls) == 1
+    assert core.embedding_calls[0] == [
+        "Policy Engine governance document",  # doc
+        "Policy Engine governance document",  # entity fallback
+        "Policy Engine governance document",  # relation fallback
+    ]
+
+    vmatch = result.context["vector_matching"]
+    assert vmatch["entities"]["query_source"] == "fallback"
+    assert vmatch["relations"]["query_source"] == "fallback"
 
 
 @pytest.mark.django_db
@@ -283,3 +329,11 @@ def test_query_endpoint_returns_extracted_keywords_in_context():
         "low_level_keywords": ["Policy Engine"],
         "high_level_keywords": ["governance"],
     }
+
+    # Endpoint coverage for vector matching structure
+    vmatch = payload["context"]["vector_matching"]
+    assert "documents" in vmatch
+    assert "entities" in vmatch
+    assert "relations" in vmatch
+    assert "hits" in vmatch["entities"]
+    assert "query_source" in vmatch["entities"]

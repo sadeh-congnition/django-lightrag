@@ -23,58 +23,81 @@ class QueryEngine:
         """Query the RAG system"""
         raise NotImplementedError("Use LightRAGCore.query() instead.")
 
-    def retrieve_documents(
+    def search_document_vectors(
         self, query_embedding: list[float], top_k: int
-    ) -> list[Document]:
-        """Retrieve relevant documents using vector similarity"""
-        results = self.vector_storage.search_similar(
+    ) -> list[dict]:
+        """Retrieve relevant document vectors using vector similarity"""
+        return self.vector_storage.search_similar(
             "document", query_embedding, top_k=top_k
         )
-        if not results:
-            return list(Document.objects.all().order_by("-created_at")[:top_k])
 
-        doc_ids = [item["id"] for item in results]
+    def hydrate_documents(
+        self, vector_results: list[dict], fallback_top_k: int
+    ) -> list[Document]:
+        """Hydrate vector search results into Document ORM objects"""
+        if not vector_results:
+            return list(Document.objects.all().order_by("-created_at")[:fallback_top_k])
+
+        doc_ids = [item["id"] for item in vector_results]
         documents_by_id = {
             doc.id: doc for doc in Document.objects.filter(id__in=doc_ids)
         }
-        return [
-            documents_by_id[doc_id] for doc_id in doc_ids if doc_id in documents_by_id
-        ]
+        seen = set()
+        hydrated = []
+        for doc_id in doc_ids:
+            if doc_id in documents_by_id and doc_id not in seen:
+                seen.add(doc_id)
+                hydrated.append(documents_by_id[doc_id])
+        return hydrated
 
-    def retrieve_entities(
+    def search_entity_vectors(
         self, query_embedding: list[float], top_k: int
-    ) -> list[Entity]:
-        entity_results = self.vector_storage.search_similar(
+    ) -> list[dict]:
+        """Retrieve relevant entity vectors using vector similarity"""
+        return self.vector_storage.search_similar(
             "entity", query_embedding, top_k=top_k
         )
-        entity_ids = [item["id"] for item in entity_results]
+
+    def hydrate_entities(self, vector_results: list[dict]) -> list[Entity]:
+        """Hydrate vector search results into Entity ORM objects, deduplicating by entity ID while preserving vector rank."""
+        entity_ids = []
+        seen = set()
+        for item in vector_results:
+            eid = item["metadata"].get("entity_id", item["id"])
+            if eid and eid not in seen:
+                seen.add(eid)
+                entity_ids.append(eid)
+
         entities_by_id = {
             entity.id: entity for entity in Entity.objects.filter(id__in=entity_ids)
         }
-        return [
-            entities_by_id[entity_id]
-            for entity_id in entity_ids
-            if entity_id in entities_by_id
-        ]
+        return [entities_by_id[eid] for eid in entity_ids if eid in entities_by_id]
 
-    def retrieve_relations(
+    def search_relation_vectors(
         self, query_embedding: list[float], top_k: int
-    ) -> list[Relation]:
-        relation_results = self.vector_storage.search_similar(
+    ) -> list[dict]:
+        """Retrieve relevant relation vectors using vector similarity"""
+        return self.vector_storage.search_similar(
             "relation", query_embedding, top_k=top_k
         )
-        relation_ids = [item["id"] for item in relation_results]
+
+    def hydrate_relations(self, vector_results: list[dict]) -> list[Relation]:
+        """Hydrate vector search results into Relation ORM objects, deduplicating by relation ID while preserving vector rank."""
+        relation_ids = []
+        seen = set()
+        for item in vector_results:
+            rid = item["metadata"].get("relation_id", item["id"])
+            if rid and rid not in seen:
+                seen.add(rid)
+                relation_ids.append(rid)
+
         relations_by_id = {
             relation.id: relation
             for relation in Relation.objects.select_related(
                 "source_entity", "target_entity"
             ).filter(id__in=relation_ids)
         }
-        return [
-            relations_by_id[relation_id]
-            for relation_id in relation_ids
-            if relation_id in relations_by_id
-        ]
+        return [relations_by_id[rid] for rid in relation_ids if rid in relations_by_id]
 
     def merge_unique_records(self, records: list[Any]) -> list[Any]:
         unique_records: list[Any] = []
